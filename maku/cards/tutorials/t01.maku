@@ -1,0 +1,75 @@
+;; Tutorial 1: first bullets — the runnable companion to
+;; docs/tutorials/01-first-bullets.md. Each example is a pattern: press
+;; 1-9 in the player (or click the menu in the web host) to run it.
+;;
+;;   cargo run --release --manifest-path crates/Cargo.toml --features player --bin maku -- cards/tutorials/t01.maku
+;;
+;; Topic sequence after Danmokou's tutorials (MIT, (c) Bagoum); see
+;; docs/from-dmk.md if you're coming from DMK/BDSL.
+
+;; 1. one bullet: 2 units right of the origin, speed 2, heading -90°
+(import "touhou")
+(defpattern ex1-one-bullet []
+  (bullet ((pose c[2 0]) (linear p[2 -90])) {:style {:family :fireball :color :red :variant :w}}))
+
+;; 2. the same bullet, velocity written cartesian: p[2 -90] = c[0 -2]
+(defpattern ex2-cartesian []
+  (bullet ((pose c[2 0]) (linear c[0 -2])) {:style {:family :fireball :color :green :variant :w}}))
+
+;; 3. offsets that rotate vs offsets that don't: put the position inside
+;; or outside the rotation frame. (DMK spells this V2RV2; here it is only
+;; tree position.)
+(defpattern ex3-rotating-offset []
+  (par
+    ;; offset INSIDE the rot: the whole thing turns 90° — spawns at (0,2)
+    (bullet ((rot 90) ((pose c[2 0]) (linear p[2 -90]))) {:style {:family :fireball :color :green :variant :w}})
+    ;; offset OUTSIDE the rot: position stays at (2,0); only the bullet's
+    ;; heading turns
+    (bullet ((pose c[2 0]) ((rot 90) (linear p[2 -90]))) {:style {:family :fireball :color :blue :variant :w}})))
+
+;; 4. thirty bullets: rotation frames are just arithmetic on an index array
+(defpattern ex4-ring-by-hand []
+  (bullet ((rot m"12 * iota(30)") ((pose c[1 0]) (linear p[2 0]))) {:style {:family :arrow :color :red :variant :w}}))
+
+;; 5. the same idea, evenly around the full circle: the stock formation
+(defpattern ex5-circle []
+  (bullet (circle 30 ((pose c[1 0]) (linear p[2 0]))) {:style {:family :arrow :color :red :variant :w}}))
+
+;; 6. a centered fan: 30 bullets, 6° apart, aimed straight up
+(defpattern ex6-fan []
+  (bullet ((rot 90) (fan 30 6 ((pose c[1 0]) (linear p[2 0])))) {:style {:family :arrow :color :teal :variant :w}}))
+
+;; 7. nesting: 10 groups of 3 — multiplicity is the product of array
+;; sizes along the path, readable straight off the tree
+(defpattern ex7-nested []
+  (bullet ((rot m"36 * iota(10)")
+           ((rot m"4 * iota(3)")
+             ((pose c[1 0]) (linear p[2 0])))) {:style {:family :arrow :color :red :variant :w}}))
+
+;; 8. one color per group: meta arrays bind to the LEADING axis (the
+;; outer 10) and shorter arrays cycle — red, blue, green, red, …
+(defpattern ex8-colors []
+  (bullet ((rot m"36 * iota(10)")
+           ((rot m"4 * iota(3)")
+             ((pose c[1 0]) (linear p[2 0])))) {:style {:family :arrow
+                  :color [:red :blue :green]
+                  :variant :w}}))
+
+;; 9. both axes at once: color cycles over the groups (leading axis);
+;; variant targets the inner axis of 3 by writing its length explicitly
+(defpattern ex9-both-axes []
+  (bullet ((rot m"36 * iota(10)")
+           ((rot m"4 * iota(3)")
+             ((pose c[1 0]) (linear p[2 0])))) {:style {:family :arrow
+                  :color [:red :blue :green]
+                  :variant (nth [:w :x :b] (iota 3))}}))
+
+;; 10. meta as a matrix: nested arrays resolve STRUCTURALLY — depth in the
+;; value = axis in the spawn. Group 0 cycles red/blue inside, group 1 is
+;; all green, group 2 all purple, group 3 wraps around.
+(defpattern ex10-nested-meta []
+  (bullet ((rot m"36 * iota(10)")
+           ((rot m"4 * iota(3)")
+             ((pose c[1 0]) (linear p[2 0])))) {:style {:family :arrow
+                  :color [[:red :blue] :green :purple]
+                  :variant :w}}))

@@ -1,0 +1,88 @@
+;; Two-pilot co-op: player 1 on WASD ($p1-move-*), player 2 on arrows
+;; ($p2-move-*). Nothing engine-side knows about "two players" -- each rig
+;; is an entity whose handle is bound to its derived channels
+;; ($player-1/$player-2, $nearest-enemy-1/-2, $lives-1/-2), iframes are a
+;; per-entity column so the pilots dodge independently, and the hostile
+;; spray aims at $nearest-pilot.
+
+(import "touhou")
+
+;; Per-pilot host axes (the co-op host binds WASD and the arrows here).
+(defchannel $p1-move-x (from-host :p1-move-x 0))
+(defchannel $p1-move-y (from-host :p1-move-y 0))
+(defchannel $p2-move-x (from-host :p2-move-x 0))
+(defchannel $p2-move-y (from-host :p2-move-y 0))
+
+;; Per-pilot streams: the rigs rebind them to live entity state.
+(def $player-1 c[-2 -3])
+(export! $player-1)
+(def $lives-1 3)
+(export! $lives-1)
+(def $nearest-enemy-1 c[0 3])
+(export! $nearest-enemy-1)
+(def $player-2 c[2 -3])
+(export! $player-2)
+(def $lives-2 3)
+(export! $lives-2)
+(def $nearest-enemy-2 c[0 3])
+(export! $nearest-enemy-2)
+
+(defpattern coop []
+  (par (in-frame :world (par (pilot-rig-1) (pilot-rig-2)
+                             (autofire 1) (autofire 2)))
+       (drones)
+       (spray)))
+
+(defn pilot-rig-motion [k]
+  (clamp c[-5.5 -4.4] c[5.5 4.4]
+    (in-frame c[(* 2 (- (* 2 k) 3)) -3]        ; k=1 -> x -2, k=2 -> x 2
+      (vel c[(* 4.5 (live (nth [$p1-move-x $p2-move-x] (dec k))))
+             (* 4.5 (live (nth [$p1-move-y $p2-move-y] (dec k))))]))))
+
+(defn pilot-meta [k]
+  {:team :player-body
+   :lives 3 :pilot k :graze 0 :hits 0})
+
+(defpattern pilot-rig-1 []
+  (let [p (spawn (pilot-rig-motion 1)
+                 (circle-collider {:layer :player-hurt :r 0.05})
+                 (pilot-meta 1))]
+    (let [h (nth p 0)]
+      (seq
+        (bind! $player-1 (:pos h))
+        (bind! $lives-1 (:lives h))
+        (bind! $nearest-enemy-1 (nearest-entity {:team :enemy} $player-1))))))
+
+(defpattern pilot-rig-2 []
+  (let [p (spawn (pilot-rig-motion 2)
+                 (circle-collider {:layer :player-hurt :r 0.05})
+                 (pilot-meta 2))]
+    (let [h (nth p 0)]
+      (seq
+        (bind! $player-2 (:pos h))
+        (bind! $lives-2 (:lives h))
+        (bind! $nearest-enemy-2 (nearest-entity {:team :enemy} $player-2))))))
+
+(defchannel $nearest-pilot
+  (nearest-entity {:team :player-body} c[0 3.2]))
+
+(defpattern autofire [k 1]
+  (seq
+    (wait (ticks 2))            ; rigs register their derived channels first
+    (for [i inf :every (ticks 9)]
+      (shot (in-frame (nth [$player-1 $player-2] (dec k))
+               (vel p[10 (slew 70 90
+                             (angle-of (- (live (nth [$nearest-enemy-1 $nearest-enemy-2]
+                                                     (dec k)))
+                                          pos)))])) {:style {:family :amulet :color (nth [:red :blue] (dec k))} :damage 1}))))
+
+(defpattern drones []
+  (for [i inf :every 2.5]
+    (enemy (in-frame c[(rand -4 4) 4.4] (vel c[0 -0.5])) {:style {:family :gglcircle :color :green} :hp 3 :hitbox 0.3})))
+
+(defpattern spray []
+  (seq
+    (wait 0.5)
+    (for [vol inf :every (ticks 30)]
+      (bullet (in-frame (pose c[0 3.2])
+               ((aim $nearest-pilot) (fan 5 22 (linear p[2.6 0])))) {:style {:family :circle :color :red}}))))

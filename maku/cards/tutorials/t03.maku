@@ -1,0 +1,125 @@
+;; Tutorial 3: two spell cards — the runnable companion to
+;; docs/tutorials/03-two-spells.md. Press 1-9 to run each example.
+;; The card is factored the way it was built: parts get names at the
+;; moment they'd otherwise be repeated.
+;;
+;;   cargo run --release --manifest-path crates/Cargo.toml --features player --bin maku -- cards/tutorials/t03.maku
+
+;; ---------------------------------------------------------------------------
+;; Spell 1: Miracle Fruit (Touhou 11 extra) — seed bullets that each
+;; burst into expanding rings.
+
+;; 1. everything inline first: a ring of seeds every 3 seconds; each seed
+;; runs its own little TIMELINE — spawn hands back handles, and a forked
+;; (wait → burst → cull) rides each one. No watcher, no query: the
+;; spawner holds the pointers and the schedule is static.
+(import "touhou")
+(defpattern ex1-fruit-basic []
+  (for [vol inf :every 3]
+    (let [seeds (bullet (circle 8 (linear p[3 0])) {:style {:family :lellipse :color :red :variant :w}})]
+      (for [b seeds]
+        (fork
+          (seq
+            (wait 0.7)
+            ((pose (pos b))
+              (bullet (circle 20 (vel p[(lerp 0.3 1.4 t 0 2.6) 0])) {:style {:family :ellipse :color :red :variant :w}}))
+            (cull b)))))))
+
+;; 2. the burst gets fancier (six rings unfolding at growing radius) —
+;; it earns a NAME: a defn of where and which color (actions are values,
+;; so the function's result slots straight into the timeline). The
+;; pattern itself takes parameters (seed count, ripen time).
+(def palette [:red :pink :purple :blue :teal :green :yellow :orange])
+
+(defn burst [at ci]
+  ((pose at)
+    (for [ring 6 :every (ticks 12)]
+      (bullet (circle 20
+               ((pose c[(* 0.4 ring) 0])
+                 (vel p[(lerp 0.3 1.4 t 0 2.6) 0]))) {:style {:family :ellipse
+                      :color (nth palette ci)
+                      :variant :w}}))))
+
+(defpattern ex2-fruit-staged [n 8 ripen 0.7]
+  (for [vol inf :every 3]
+    (let [seeds (bullet (circle n (linear p[3 0])) {:style {:family :lellipse :color palette :variant :w}})]
+      (for [b seeds, ci (iota n)]
+        (fork
+          (seq (wait ripen)
+               (fork (burst (pos b) 0))       ; one color for now
+               (cull b)))))))
+
+;; 3. color inheritance costs one token: each seed's timeline already
+;; binds its index ci lexically — pass it through.
+(defpattern ex3-fruit-colors [n 8 ripen 0.7]
+  (for [vol inf :every 3]
+    (let [seeds (bullet (circle n (linear p[3 0])) {:style {:family :lellipse :color palette :variant :w}})]
+      (for [b seeds, ci (iota n)]
+        (fork
+          (seq (wait ripen)
+               (fork (burst (pos b) ci))      ; ← the whole diff
+               (cull b)))))))
+
+;; ---------------------------------------------------------------------------
+;; Spell 2: Danmaku Chimera (Touhou 8) — a weaving emitter fires long
+;; bullets that freeze into beads along their own flight path.
+
+;; 4. the weave, standing alone: a moving frame firing rotated rings.
+;; (Constants from the original: period 8φ ≈ 12.94s, volley turn
+;; 22/φ ≈ 13.6°, keine spawn at radius 1.)
+(defpattern ex4-weave []
+  (in-frame (cart m"sine(12.94, 2, t)" 0)
+    (for [vol inf :every 2]
+      (bullet ((rot m"13.6 * vol")
+               (circle 16 ((pose c[1 0]) (linear p[2 0])))) {:style {:family :keine :color :purple :variant :w}}))))
+
+;; 5. the full spell REUSES ex4 — patterns invoke like functions, so the
+;; previous example is simply a part of this one. And unlike the fruit,
+;; this spell NEEDS a query: regeneration means keine re-enter the world
+;; that no timeline is holding — the watched set is OPEN. The watcher
+;; shape (from tutorial 2) earns a macro.
+(defmacro control [period query effect]
+  `(fork (for [i inf :every ~period] (manip ~query ~effect))))
+
+(defmacro where [expr]
+  `(fn [b] ~expr))
+
+(defpattern ex5-chimera []
+  (par
+    (ex4-weave)
+    ;; act 1 — freeze: each keine becomes 13 beads laid along its flight
+    ;; path, anchored at the volley ORIGIN so they can pivot around it.
+    ;; Alternating beads counter-rotate ±33.75° (1.5 × 360/16, so rays
+    ;; re-align when the ease finishes) over 3 seconds.
+    (control (ticks 5)
+             (where (* (= b.family :keine) (> b.t 1)))
+             (fn [b]
+               (let [th (angle-of b.vel)
+                     r  (+ 1 (* (mag b.vel) b.t))   ; spawned at radius 1
+                     tx (- b.pos.x (* r (cos th)))  ; the volley ORIGIN
+                     ty (- b.pos.y (* r (sin th)))]
+                 (seq
+                   (bullet ((pose c[tx ty])
+                            (map (fn [k]
+                                   ((rot (lerpsmooth eiosine 0 3 t
+                                           th
+                                           (+ th (* (- 1 (* 2 (mod k 2))) 33.75))))
+                                     (pose c[(- r (* 0.2 k)) 0])))
+                                 (iota 13))) {:style {:family :gcircle
+                                   :color [:blue :purple]
+                                   :variant :w}
+                           :k (iota 13) :ang (+ th 33.75)})
+                   (cull b)))))
+    ;; act 2 — regenerate: when the rotation settles, the HEAD bead of
+    ;; each ray re-fires a keine along its settled angle (the freeze
+    ;; control will catch it again: the pattern rebuilds itself), and
+    ;; all beads cull. Control order in the par decides the ordering.
+    (control (ticks 5)
+             (where (* (= b.family :gcircle) (> b.t 3.2) (< (default b.k 1) 0.5)))
+             (fn [b]
+               ((pose (pos b))
+                 ((rot b.ang)
+                   (bullet (linear p[2 0]) {:style {:family :keine :color :purple :variant :w}})))))
+    (control (ticks 5)
+             (where (* (= b.family :gcircle) (> b.t 3.2)))
+             (fn [b] (cull b)))))

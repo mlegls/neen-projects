@@ -1,0 +1,94 @@
+;; Translation of dmk-corpus/040_spread.bdsl
+;;
+;; BDSL original (22 lines), for ergonomics comparison:
+;;
+;;   pattern { } {
+;;   phase 0 {
+;;       roott(1, 0, 1)
+;;   } {
+;;       paction 0 {
+;;       async("arrow-*/w", <90>, girepeat({
+;;               wait(70)
+;;               times(inf)
+;;               color({ "red", "green", "blue" })
+;;               rv2incr(<120>)
+;;           },  gcrepeat({
+;;                   times(8)
+;;                   wait(10)
+;;                   spread(<40>)
+;;                   preloop b{
+;;                       hvar loop = i
+;;                   }
+;;               }, s(rvelocity(px(2 + 0.3 * loop)))
+;;           )))
+;;       }
+;;   }
+;;   }
+;;
+;; DMK semantics: base aim 90deg (up). Every 70 frames, start a volley of 8 shots
+;; fired 10 frames apart; within a volley the angle fans by 40deg total
+;; (increment = 40/(8-1) per shot -- GenCtxProperties.cs:277) and speed grows
+;; 2, 2.3, .. 4.1 per shot. Across volleys the base angle steps +120deg
+;; (rv2incr, cumulative -> 120*vol: same dissolution family as BoWaP, trivially
+;; telescoping) and color cycles red/green/blue.
+;;
+;; Timing note: a volley spans 70 frames (8 shots at 0,10,..,70 -- DMK's GCR
+;; has NO trailing wait: AsyncPatterns.cs RemainsExceptLast + special-cased
+;; last iteration) while volleys start every 70: back-to-back, boundary ticks
+;; coincident. girepeat launches its child and moves on (no `waitchild`);
+;; without (fork ...) the outer :every would wait 70 ticks AFTER the 70-tick
+;; body, doubling the period to 140. Fork keeps the cadence (finding F8).
+
+(import "touhou")
+(defpattern spread-demo [volley-gap (ticks 70)
+                         shot-gap   (ticks 10)]
+  ((pose c[0 1])
+    ((rot 90)
+      (dotimes [vol inf, col [:red :green :blue] :every volley-gap]
+        (fork
+          (dotimes [shot 8 :every shot-gap]
+            (bullet ((rot m"120*vol + shot*40/7")
+                     (linear c[m"2 + 0.3*shot" 0])) {:style {:family :arrow :color col :variant :w}})))))))
+
+;; ---------------------------------------------------------------------------
+;; Canonical desugared tree (bullet argument, {})
+;;
+;;   (in-frame (pose (cart 0 1))
+;;     (in-frame (rot 90)
+;;       (in-frame (rot (+ (* 120 vol) (/ (* shot 40) 7)))
+;;         (linear (cart (+ 2 (* 0.3 shot)) 0)))))
+;;
+;; (m"..." is parse-only: the canonical tree is the parsed s-expr form.)
+;;
+;; (dotimes [shot 8 :every d] body) desugars to
+;;   (loop [shot 0] body (when (< shot 7) (wait d) (recur (inc shot))))
+;; and a seq binding [.. col xs ..] adds col = (nth xs i) per iteration
+;; (cyclic nth; DMK's repeater-level color modifier as a loop binding).
+;;
+;; DMK dissolutions exercised here:
+;;   rv2incr(<120>)  -> 120*vol      (cumulative angle, telescopes -- BoWaP-lite)
+;;   spread(<40>)    -> shot*40/7    (pure fn of shot index; /(times-1) semantics)
+;;   hvar loop = i   -> `shot` is just the loop binding; no hoisting construct
+;;   girepeat overlap-> explicit (fork ...) into the enclosing scope (F8)
+;;
+;; ---------------------------------------------------------------------------
+;; Rate / constructor audit
+;;
+;;   anchor + base rot            constant poses, Closed-const .......... ir
+;;   volley/shot rot              control-layer constant per spawn ...... ir
+;;   (linear ...)                 Closed, constant speed per bullet
+;;                                (speed is an ir constant; only tau
+;;                                varies in flight) ..................... ar
+;;   :color / :style              ir
+;;   loop/dotimes state           control layer; recur bindings only
+;;   timeline                     constant waits, no event-waits, no
+;;                                injected signals => input-independent:
+;;                                scrubbable, extractable
+;;
+;; Both inner and outer iterations are SEQUENTIAL IN TIME (waits between), so
+;; both are control-layer loops -- unlike 020/130 where the ring is a
+;; simultaneous array. The 8 shots are 8 separate one-bullet spawns with
+;; birth-time columns 10 frames apart, per SS3 (emission over time is
+;; birth-time data).
+;;
+;; Nothing lacks a clean image; `fork` is new control vocabulary (F8).

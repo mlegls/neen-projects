@@ -1,0 +1,107 @@
+;; Tutorial 4: pathers, lasers, and subfiring — the runnable companion to
+;; docs/tutorials/04-pathers-and-lasers.md. Press 1-9 to run each example.
+;;
+;;   cargo run --release --manifest-path crates/Cargo.toml --features player --bin maku -- cards/tutorials/t04.maku
+
+;; 1. pathers: a trailing window of the trajectory drawn as geometry.
+;; (pather window dyn) — the trail is the hitbox. Three wavy ribbons
+;; with drifting hue.
+(import "touhou")
+(defpattern ex1-pathers []
+  (bullet ((rot m"120 * iota(3)")
+           (pather 1.2 (cart m"1.2 * t" m"sine(1, 0.35, t)"))) {:style {:family :pather :color [:red :teal :purple] :variant :w}
+          :hue m"60 * t"}))
+
+;; 2. laser lifecycle: :warn is the harmless telegraph, :active the hot
+;; window — ordinary fields in the spawn meta. The figure inside is a
+;; plain curve; (laser ...) is the spawn that makes it a beam. One
+;; straight beam downward; one at a fixed angle; one whose angle sweeps.
+(defpattern ex2-lasers []
+  (par
+    (laser ((pose c[-2 3]) ((rot -90) (curve {:u-max 7}))) {:warn 1 :active 2 :style {:family :laser :color :red}})
+    (laser ((pose c[0 3]) ((rot -60) (curve {:u-max 7}))) {:warn 1 :active 2 :style {:family :glaser :color :green}})
+    (laser ((pose c[2 3]) ((rot m"-120 + 30 * t")
+                            (curve {:u-max 7}))) {:warn 1 :active 3 :style {:family :gdlaser :color :blue}})))
+
+;; 3. shaped lasers: the shape is a signal over (t, u), where u is the
+;; distance along the beam. A shape using only u is drawn once and holds
+;; still; adding t makes the whole curve writhe.
+(defpattern ex3-shaped []
+  (par
+    ;; static: a frozen spiral (u only)
+    (laser ((pose c[-2 0])
+             (curve (polar m"1.5 * u" m"sine(1.4, 60, u)")
+                    {:u-max 2.5 :width 0.5})) {:warn 1 :active 4 :style {:family :gdlaser :color :yellow}})
+    ;; dynamic: the same spiral, alive (t enters the phase)
+    (laser ((pose c[2 0])
+             (curve (polar m"1.5 * u" m"-30 * t + sine(1.4, 60, u + t)")
+                    {:u-max 2.5 :width 0.5})) {:warn 1 :active 4 :style {:family :gdlaser :color :pink}})))
+
+;; 4. subfiring from a pather tip: let-bind the guide dyn so the ribbon
+;; and the firing loop share ONE instance, then fork the loop inside the
+;; guide's frame — it rides the tip (the HEAD; the amulets fire backward
+;; over the ribbon, which can read as tail-emission).
+(defpattern ex4-tip-fire []
+  (let [guide (cart m"1.4 * t" m"sine(1.1, 0.3, t)")]
+    (par
+      (bullet (pather 1.5 guide) {:style {:family :lightning :color :blue :variant :w}})
+      (in-frame guide
+        (fork
+          (for [i 40 :every (ticks 10)]
+            (bullet ((rot 180) (linear p[2 0])) {:style {:family :amulet :color :pink :variant :b}})))))))
+
+;; 5. subfiring along a laser: (on-laser h u) gives the pose (position +
+;; tangent) at distance u along a live laser; (rot 90) fires normal to it.
+(defpattern ex5-on-laser []
+  (let [h (laser ((pose c[-2.5 -2])
+                   (curve (polar m"1.8 * u" m"-15 * t + sine(2.8, 40, u + t)")
+                          {:u-max 3 :width 0.6})) {:warn 0.5 :active 5 :style {:family :gdlaser :color :red}})]
+    (for [i 44 :every (ticks 8)]
+      ((pose (on-laser (nth h 0) m"0.07 * i"))
+        ((rot 90)
+          (bullet (linear p[1.5 0]) {:style {:family :gem :color :green :variant :w}}))))))
+
+;; 6. slow lasers: :fill is a swept-fraction signal; fill-linear is the
+;; ordinary source→tip helper. The full path stays telegraphed (dim) while
+;; only the swept prefix is bright and deadly.
+(defpattern ex6-slow []
+  (laser ((pose c[-3 3])
+           ((rot m"-90 + 15 * iota(3)")
+             (curve {:u-max 7}))) {:warn 0.8 :active 4 :fill (fill-linear 0.8 1.5)
+          :style {:family :laser :color [:red :yellow :pink]}}))
+
+;; 7. lifecycle trees: multi-stage bullet lives with NO queries — spawn
+;; returns handles (the pointers), and each bullet forks its own timeline.
+;; Ring → each becomes a laser → each laser fires perpendicular shots →
+;; each shot explodes by parity of its index.
+(defpattern ex7-lifecycle []
+  (let [ring (bullet (circle 12 (linear p[1.5 0])) {:style {:family :circle :color :red :variant :w}})]
+    (for [b ring]
+      (fork
+        (seq
+          (wait 1)
+          (let [at (pos b)
+                th (angle-of b.vel)]
+            (seq
+              (cull b)
+              (let [l (laser ((pose at) ((rot th)
+                               (curve {:u-max 2.5 :width 0.5}))) {:warn 0.3 :active 2 :style {:family :gdlaser :color :purple}})]
+                (seq
+                  (wait 0.8)
+                  (let [shots (bullet (map (fn [k]
+                                            ((pose (on-laser (nth l 0) (* 0.5 k)))
+                                              ((rot 90) (linear p[1 0]))))
+                                          (iota 5)) {:style {:family :star :color :yellow :variant :w}})]
+                    (seq
+                      (wait 0.9)
+                      ;; actions are values: the two explosion patterns sit
+                      ;; in an array and parity picks
+                      (for [s shots, k (iota 5)]
+                        (seq
+                          ((pose (pos s))
+                            (bullet (nth [(circle 8 (linear p[2 0]))
+                                         (fan 6 20 (linear p[2.5 0]))]
+                                        k) {:style {:family :gem
+                                            :color (nth [:teal :pink] k)
+                                            :variant :w}}))
+                          (cull s))))))))))))))

@@ -1,0 +1,69 @@
+;; Tutorial 2: changing bullets in flight — the runnable companion to
+;; docs/tutorials/02-bullet-controls.md. Press 1-9 to run each example.
+;;
+;;   cargo run --release --manifest-path crates/Cargo.toml --features player --bin maku -- cards/tutorials/t02.maku
+;;
+;; Topic sequence after Danmokou's tutorials (MIT, (c) Bagoum); see
+;; docs/from-dmk.md if you're coming from DMK/BDSL.
+
+;; --- lifecycle trees: the default -------------------------------------
+
+;; 1. restyle at an age: spawn returns HANDLES; each bullet gets its own
+;; forked timeline — wait 1s, announce, restyle. No watching, no query.
+(import "touhou")
+(defpattern ex1-restyle []
+  (for [vol inf :every (ticks 45)]
+    (let [ring (bullet (circle 12 (linear p[1.2 0])) {:style {:family :circle :color :blue :variant :w}})]
+      (for [b ring]
+        (fork
+          (seq
+            (wait 1)
+            (event :sfx "x-transform-1")
+            (set-col b :family :arrow)
+            (set-col b :color :red)
+            (set-col b :variant :b)))))))
+
+;; 2. burst at an age: the timeline ends the bullet's life and starts
+;; new ones where it died. A dead handle (player bombed it first) makes
+;; the rest of the timeline a harmless no-op.
+(defpattern ex2-burst []
+  (for [vol inf :every (ticks 70)]
+    (let [stars (bullet (circle 6 (linear p[1.5 0])) {:style {:family :star :color :teal :variant :w}})]
+      (for [s stars]
+        (fork
+          (seq
+            (wait 1.2)
+            ((pose (pos s))
+              (bullet (circle 8 (linear p[3 0])) {:style {:family :gem :color :pink :variant :w}}))
+            (cull s)))))))
+
+;; --- queries: the general tool ----------------------------------------
+
+;; 3. a timeline can't express "when it crosses y=3 moving up" — that's a
+;; RUNTIME condition. (manip query effect) selects live bullets right
+;; now; loop it to keep watching. The flip is a remat: swap the motion
+;; for a new one anchored at the current position.
+(defpattern ex3-flip []
+  (par
+    (fork
+      (for [i 480 :every (ticks 1)]      ; the control, for 4 seconds
+        (manip (fn [b] (* (= b.family :circle) (> b.pos.y 3) (> b.vel.y 0)))
+          (fn [b] (remat b (linear c[b.vel.x (- 0 b.vel.y)]))))))
+    (for [vol inf :every (ticks 50)]
+      (bullet (circle 24 (linear p[2.5 0])) {:style {:family :circle :color :red :variant :w}}))))
+
+;; 4. selection across styles: two families × two colors spray; one
+;; control culls only {circle, star} × {red, blue} that fall below
+;; y=-2. Selection is ordinary predicate composition.
+(defpattern ex4-select-cull []
+  (par
+    (fork
+      (for [i inf :every (ticks 1)]
+        (manip (fn [b] (* (+ (= b.family :circle) (= b.family :star))
+                          (+ (= b.color :red) (= b.color :blue))
+                          (< b.pos.y -2)))
+          (fn [b] (cull b)))))
+    (for [vol inf :every (ticks 40)]
+      (bullet (circle 16 (linear p[2 0])) {:style {:family (nth [:circle :star] vol)
+                      :color [:red :blue :green]
+                      :variant :w}}))))

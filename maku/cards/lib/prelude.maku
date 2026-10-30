@@ -1,0 +1,175 @@
+;;@prelude — the autoimport sentinel: expansion prepends this card to
+;; every top-level source unless the sentinel is already present, so
+;; re-expanding an expanded source stays idempotent.
+;;
+;; The prelude is LANGUAGE-level sugar only: forms any card would want,
+;; with nothing a genre could disagree with. Genre conventions (bullets,
+;; enemies, bosses, rigs) live in importable libs — (import "touhou").
+;; Like the rest of the stdlib it is authored here and inlined into the
+;; engine at compile time; users don't edit it.
+
+;; (when pred body…): the one-armed if. `if` with a false condition and
+;; no else-branch evaluates to nothing, and nothing is the no-op action,
+;; so `when` works in both value and action position.
+(defmacro when [pred & body]
+  `(if ~pred (seq ~@body)))
+
+;; (unless pred body…)
+(defmacro unless [pred & body]
+  `(if (not ~pred) (seq ~@body)))
+
+(defmacro render [row]
+  `(emit :render ~row))
+
+(defmacro event [name & pos]
+  (if (= (count pos) 0)
+    `(emit :events {:name ~name})
+    `(emit :events {:name ~name :pos ~(first pos)})))
+
+(defn inc [x] (+ x 1))
+(defn dec [x] (- x 1))
+
+;; SHORT-CIRCUITING and/or over the decided truthiness: falsy is 0 and
+;; nothing, EVERYTHING else is truthy (presence). Each returns the
+;; DECIDING VALUE — `and` the first falsy argument (or the last one),
+;; `or` the first truthy argument (or the last one) — so
+;; `(or (:family e) :none)` defaults a sym read and `(and h (pos h))`
+;; guards a maybe-missing handle; later arguments never evaluate once
+;; the answer is known. For NUMERIC fields use `default`, not `or` —
+;; 0 is falsy but it is a value. Under static typing the and/or test
+;; position stays exempt from the nums-only bool rule (that exemption
+;; is what makes the guards useful). For strict mask arithmetic use
+;; min/max (normalized), * (scales), or + (counts).
+(defn chain-test* [keep-truthy forms]
+  (loop [xs (rest forms) acc (first forms)]
+    (if (= (count xs) 0)
+      acc
+      (recur (rest xs)
+             (if (< keep-truthy 0.5)
+               `(let [__sc-x ~acc] (if __sc-x ~(first xs) __sc-x))
+               `(let [__sc-x ~acc] (if __sc-x __sc-x ~(first xs))))))))
+(defmacro and [x & xs] (chain-test* 0 (concat [x] xs)))
+(defmacro or [x & xs] (chain-test* 1 (concat [x] xs)))
+
+;; (default x d): x unless x is NOTHING, else d — presence, not
+;; truthiness, so a legitimate 0 or keyword passes through. This is THE
+;; idiom for defaulting maybe-missing field reads; `or` falls back on
+;; falsy (0 included), `default` only on missing. The engine recognizes
+;; the inlined shape as the %value-or intrinsic.
+(defn default [x d] (if (nothing? x) d x))
+(defn set-col [e col v] (change-col e col (fn [_] v)))
+
+(defn rand-int [a b] (floor (rand a b)))
+(defn randpm1 [] (if (< (rand 0 1) 0.5) -1 1))
+
+(defn circle [n & child]
+  (let [frames (if (= n 0)
+                 (nth [] 0)
+                 (map (fn [k] (rot (* k (/ 360 n)))) (iota n)))]
+    (if (= (count child) 0) frames (frames (first child)))))
+
+(defn fan [n step & child]
+  (let [frames (map (fn [k] (rot (* (- k (/ (- n 1) 2)) step))) (iota n))]
+    (if (= (count child) 0) frames (frames (first child)))))
+
+(defn arrow [n back side & child]
+  (let [half (floor (/ (- n 1) 2))]
+    (let [frames (map (fn [k]
+                        (let [j (- k half)]
+                          (cart (* (- 0 back) (abs j)) (* side j))))
+                      (iota n))]
+      (if (= (count child) 0) frames (frames (first child))))))
+
+(defn for-spec* [spec]
+  (loop [xs (forms spec) pairs [] every 0]
+    (if (= (count xs) 0)
+      {:pairs pairs :every every}
+      (if (= (form-name (first xs)) :every)
+        (recur (drop 2 xs) pairs (nth xs 1))
+        (recur (drop 2 xs)
+               (concat pairs [[(nth xs 0) (nth xs 1)]])
+               every)))))
+
+(defn for-bind* [src i]
+  (if (seq? src)
+    (if (= (count src) 0) src (nth src i))
+    src))
+
+(defn for-bindings* [pairs]
+  (loop [xs pairs out []]
+    (if (= (count xs) 0)
+      out
+      (let [p (first xs)]
+        (recur (rest xs)
+               (concat out [(nth p 0) `(for-bind* ~(nth p 1) __for-i)]))))))
+
+(defmacro for [spec & body]
+  (let [parsed (for-spec* spec)
+        pairs (get parsed :pairs)
+        first-pair (first pairs)
+        var (nth first-pair 0)
+        src (nth first-pair 1)
+        rest-pairs (rest pairs)
+        every (get parsed :every)
+        wait-form (if (= every 0) [] [`(when (< (inc __for-i) __for-n) (wait ~every))])]
+    `(let [__for-lead ~src
+           __for-n (if (seq? __for-lead) (count __for-lead) __for-lead)]
+       (loop [__for-i 0]
+         (if (< __for-i __for-n)
+           (seq
+             (let [~var (if (seq? __for-lead) (for-bind* __for-lead __for-i) __for-i)
+                   ~@(for-bindings* rest-pairs)]
+               ~@body)
+             ~@wait-form
+             (recur (inc __for-i))))))))
+
+(defmacro dotimes [spec & body]
+  `(for ~spec ~@body))
+
+;; A laser :fill helper: fraction reaches 0 at `warn` and 1 at
+;; `warn + dur`. The laser clamps the sampled fraction to 0..1.
+(defn fill-linear [warn dur]
+  (/ (- t warn) dur))
+
+;; Eased 0..1 progress over the same interval shape.
+(defn fill-ease [ease warn dur]
+  (ease (/ (- t warn) dur)))
+
+;; A local straight curve from the origin to `delta`; useful for move.
+(defn line-to [delta]
+  (cart (* u delta.x) (* u delta.y)))
+
+;; Rematerialize an entity onto a curve sampled by a progress signal.
+;; Macro so `progress` reaches `path` as a signal form with t in scope.
+(defmacro move [entity curve progress]
+  `(remat ~entity (path ~curve ~progress)))
+
+;; Blocking point-to-point entity move. The core only supplies remat/path;
+;; this helper owns the timeline convention.
+(defmacro move-to [entity dur ease dest]
+  `(seq
+     (move ~entity (line-to (- ~dest (:pos ~entity))) (fill-ease ~ease 0 ~dur))
+     (wait ~dur)))
+
+;; slew: rate-limited approach to a target angle, shortest arc in
+;; degrees. (slew rate target) or (slew rate init target). The step is
+;; the exact lib translation of the old engine builtin: d = euclidean
+;; mod of (target - s) into [0,360), fold >180 down, clamp to rate*dt.
+(defmacro slew [rate & args]
+  (let [init (if (= (count args) 2) (nth args 0) (nth args 1))
+        target (if (= (count args) 2) (nth args 1) (nth args 0))]
+    `(evolve ~init
+       (fn [s c]
+         (let [d (mod (- ~target s) 360)
+               d (if (> d 180) (- d 360) d)
+               lim (* ~rate (:dt c))]
+           (+ s (max (- 0 lim) (min lim d))))))))
+
+;; smooth: one-pole follower toward a point target, per tick.
+;; (smooth k target); target and state are point poses.
+(defmacro smooth [k target]
+  `(evolve ~target
+     (fn [s c]
+       (let [tv ~target]
+         (cart (+ (:x s) (* ~k (- (:x tv) (:x s))))
+               (+ (:y s) (* ~k (- (:y tv) (:y s)))))))))

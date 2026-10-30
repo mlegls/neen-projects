@@ -1,0 +1,88 @@
+---
+title: "英漢字"
+slug: ying-han-zi
+date: 2026-06-02
+status: publish
+categories: ["applied", "theoretical"]
+excerpt: "A writing system for English on Chinese principles: a mostly phonetic script composed from Chinese radicals, with full-character phonetic calques and optional semantic ones."
+---
+
+This is a writing system for English built on Chinese principles. The language is ordinary modern English, pronounced exactly as it is now. The orthography is a mostly phonetic script composed from Chinese radicals, inspired by stenography and Hangul, with full character phonetic calques from Middle Chinese where available, and optional semantic calques.
+
+There is a [transcriber](./transcriber.html) that renders any English text into the script live, though the orthography allows for certain expressive choices that a deterministic transcriber can't implement.
+
+## 緣起 · Origins
+
+In ancient times in the English-speaking world there was a common word-magic, and little distinction between a name and what it named. A name was its sound, since there was no writing, and powerful names like _earth_, _blood_, _water_, or _death_ were expectedly taboo.
+
+Writing arrived in Chinese characters. Some scholars and magi, taken with the idea of phonetic roots under semantic radicals (形聲), built an entire English orthography on it. But it would not do to set down the sounds of charms, curses, and names of power in a permanent record, so the phonetic writing of charged words became taboo, the way careless utterance of certain names always had been.
+
+Chinese offered the way around it: a character can carry a word without carrying its sound. So a semantic calque — the character for what a word _meant_ — was used where inscribing a true name was dangerous, and the habit spread to frequent words whose pronunciation was obvious anyway, like pronouns and grammatical particles, as a scribal convenience. But the calque always kept a connotation of concealing or suppressing, and it was words like 死 (death) or 媾 (original pronunciation lost) that were calqued without exception.
+
+By the Renaissance the old word-magic had faded, and a semantic calque for a new word became an allusion to that esoteric aspect — sometimes earnest, sometimes ironic. Calquing a neologism turned into a stylistic choice, and sometimes a way to form cliques: in conversation it was obvious that anyone who didn’t know the right pronunciation of a calqued coinage wasn’t in the in-group. Phonetic spelling, in parallel, was held better for wide dissemination, especially to a still mostly illiterate audience. Deleuze or Jung, writing in this English, might calque freely; Locke or Hume likely would not.
+
+A calque records meaning and stays silent about sound, so reading one aloud means already knowing the word it stands for. For 死 everyone does. For a freshly calqued coinage the reading has to travel by mouth alongside the text, and transmission was uneven — schooling more so — so the canonical reading drifted, or was never shared in the first place. When two writers calqued synonyms onto the same characters, the writing distinguished neither. More precisely there was no one reading to distinguish: the page fixed the sense and left the sound to whoever spoke it, since a writer who cared about the sound would simply have spelled it out.
+
+## 形聲 · Spelling by sound
+
+Every word has a phonetic spelling — it is the ground of the script, always available, and the baseline on which everything else is an optional overlay. The unit is a square block, one per syllable, built like a real character: a phonetic body, optionally under a meaning-radical on its left — the 形聲 principle of a form element and a sound element in one glyph. Within the body, the onset sits top-left, the vowel top-right, the coda at the foot. With no coda, onset and vowel fill the body as a balanced pair (the shape of 好 or 明); with no onset, the vowel stands alone on top.
+
+The roots come from Middle Chinese, the ancestor of the Sino-Xenic readings in Japanese, Korean, and Vietnamese, so English is treated as another language adapting that stock of readings. Middle Chinese also has the richest set of syllable endings, which English's heavy syllables need. Each root is the simplest character whose Middle Chinese initial is the target consonant, and the English voicing contrast rides the Middle Chinese one: a voiced consonant takes its root from the corresponding 全濁 initial — p is 卜 (幫母) and b is 皮 (並母), s is 厶 (心母) and z is 夕 (邪母), the th of _thigh_ is 矢 (書母) and the th of _thy_ is 氏 (禪母).
+
+|                |                                                                                          |
+| -------------- | ---------------------------------------------------------------------------------------- |
+| **consonants** | p 卜 · b 皮 · t 丁 · d 大 · k 工 · g 求 · f 方 · v 万 · θ 矢 · ð 氏 · s 厶 · z 夕 · ʃ 尸 · ʒ 石 · tʃ 扎 · dʒ 乍 · h 厂 · m 冖 · n 乚 · ŋ 乙 · r 儿 · l 力 · w 云 · y 丨 |
+| **vowels**     | ɪ 已 · iː 夷 · ɛ 也 · æ 丫 · ə 之 · ʊ 乇 · uː 于 · ɑ 五 · ɔ 幺 · ɝ 儿 · eɪ 乁 · aɪ 歹 · oʊ 冘 · aʊ 夬 · ɔɪ 弔                          |
+
+One convenient case: /r/ is 儿, from the Middle Chinese 日母 _nye_, and 儿 is also the English syllable "er", so one glyph covers both the consonant and the rhotic vowel.
+
+Middle Chinese can't follow English into the coda — it closed syllables with only six consonants (_p t k m n ng_), where English closes with fricatives and voiced stops it never allowed. Those are written with the same consonant root as elsewhere, placed at the foot: coda /s/ is the same 厶 as onset /s/. This matches how a speaker feels the sound — the /s/ in _sun_ and in _bus_ are the same — and it's the expected seam in an adapted script, where the borrowed system didn't fit and was made to.
+
+## 束 · Clusters
+
+_Strengths_ ends in four consonants, and stacking every cluster from separate roots would overload the commonest words, so frequent clusters are promoted to single roots. Which clusters earn a root, and what to build them from, follows English stenography (Lapwing theory), which already reduces the language to a small, fixed, resolvable set of strokes under a slot grammar. The skeleton carries over with sounds in the slots rather than keystrokes.
+
+Where a cluster leans on one predictable consonant, the root cues its informative member. Every /s/-cluster shares the /s/, so the second consonant distinguishes them and the glyph comes from it; stop-plus-liquid onsets, where the liquid is constant, take the glyph from the stop.
+
+|                    |                                                                                                        |
+| ------------------ | ------------------------------------------------------------------------------------------------------ |
+| **onset clusters** | st 多 · sp 巴 · sk 古 · sl 立 · sw 王 · sn 尼 · sm 木 · str 束 · pr 不 · br 白 · tr 才 · dr 丈 · kr 克 · gr 巨 · fr 弗 · pl 必 · bl 百 · kl 可 · gl 各 · fl 乏 · kw 瓜 |
+| **coda clusters**  | nt 寸 · nd 乃 · mp 内 · ŋk 乞 · lt 卡 · ld 乜 · lk 卢 · rt 斥 · rd 叉 · rk 卬 · kt 七 · ft 干 · pt 弁                                  |
+
+A cluster legal in both positions keeps its glyph in both — st is 多 whether it opens _street_ or closes _best_. Rare heavy clusters compose greedily from the existing roots, so _strengths_, minus its plural, is 束·也·乞·矢 — three pieces, not seven, since ŋk is already 乞.
+
+## 借 · Borrowing and wordplay
+
+Still on the phonetic side, there is a richer move than composing a block: write a whole syllable with a single existing character that already sounds like it. The instinct is the rebus, as in man'yōgana or the phonetic loans on the oracle bones, but it isn't drawn from a fixed syllabary — a writer can reach for any character whose reading matches, and which one he reaches for is the point.
+
+A borrowed character brings its own meaning along behind the sound, so the choice of homophone colors the word. The same word can be written with different characters to mean different things, or spelled two ways in one text for effect. This is where the script puns: you are still writing by sound, but picking the body that flatters or undercuts the word. A deterministic transcriber can match the sound, but it cannot choose that overtone for you.
+
+## 之了們 · Grammar
+
+The grammar is written by meaning, in single borrowed characters, in a Classical (文言) register. _The_ is 其 (anaphoric, as in 文言); _of_ is 之; _and_ is 与; _in_ is 在; _that_ is 那. Possessive pronouns are the pronoun plus the genitive 的 — _my_ is 我的, _their_ is 彼的.
+
+Inflection gets its own characters, which is where writing by morpheme rather than sound pays off. The past tense is /t/ in _walked_, /d/ in _judged_, /ɪd/ in _wanted_ — three sounds, one meaning, all written 了. The plural's three sounds collapse to 們. The progressive _-ing_ is 中, "in the midst of."
+
+The copula and modals extend this. _Be_ is 是; _was_ is 是了; _being_ is 是中. Where a form is too irregular for a clean morpheme — _were_ — the base stays semantic and the ending goes phonetic: 是儿, copula plus /r/. The modals pair around a shared base and the same past glyph: 會 will / 會了 would, 能 can / 能了 could. The spelling follows the old preterite relation of _will_ to _would_ and _can_ to _could_; the lexical verbs "to will" and "to can" would be written phonetically.
+
+## 名 · Semantic calques
+
+The semantic spelling is the marked choice — writing a word for what it means rather than how it sounds. An elemental word like _death_ can be written 死, the sense set down and the spoken name left off the page. Other old, obvious words can become conventional the same way, and later writers can extend the habit to learned or esoteric coinages. The mechanism is the same, but the force changes: taboo for the primal words, convenience for common grammar, allusion or in-group marking for newer abstractions.
+
+Because the calque fixes only the sense, it can be read back as any of the words that share that sense: _freedom_ and _liberty_ may both be 自由, and the characters alone do not say which. That ambiguity is not a defect, because the sound was never the calque's job. A writer who needed the distinction would spell the word out.
+
+How much of a sentence takes semantic spellings, and which words, is the script's main expressive range, but the grammar still has to be written. _In the beginning God created the heavens and the earth_, pitched high, can use semantic words throughout — 在其初，神造了其天們与其地; pitched plain, it spells most of the lexical words out by sound.
+
+### A few words, in pieces
+
+| written       | reads     | what it is                           |
+| ------------- | --------- | ------------------------------------ |
+| 束 已 七      | strict    | phonetic block: str · ɪ · kt         |
+| 束 也 乞矢 們 | strengths | phonetic base + plural 們            |
+| 會 了         | would     | semantic base (will) + past 了       |
+| 是 儿         | were      | semantic base (is) + phonetic suffix |
+| 水            | water     | semantic calque                      |
+
+## 讀 · Read it
+
+The [transcriber](./transcriber.html) renders English through the deterministic layers — phonetic blocks, cluster atoms, grammatical particles, the modal and copula paradigms — and applies a curated set of conventional calques (primal, taboo, and a few esoteric coinages), which can be toggled off. It does not choose homophone borrows or calque words that convention leaves plain; those are the writer's. The glyphs are assembled from existing Unicode components as stand-ins: the cluster atoms need purpose-drawn forms, and the coda consonants currently reuse the onset roots in the foot of the block, where a finished script would give them distinct reduced forms.

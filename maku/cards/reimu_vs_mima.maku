@@ -1,0 +1,107 @@
+;; Reimu vs "PH Boss 2" (Mima) — the full-stack card: everything so far in
+;; one playable fight, built FROM the translations by import.
+;;
+;;   controls (host contract, raw side): WASD/arrows -> $move-x/$move-y,
+;;   Shift -> $focus-firing, X -> $bomb. The card owns ALL the logic:
+;;   movement integrates the raw axes in the vel domain (focus modulates
+;;   speed as a signal; the rig is clamped to the playfield), bombs are a
+;;   control-layer loop over the raw button with stock as fold state,
+;;   lives/game-over and boss hp/phases are fields + rules.
+;;
+;;   boss phases: (phases ...) — touhou's boss-shaped sugar over the
+;;   `states` FSM — non-spell while hp > 60, then Spell 2 (imported
+;;   ph_boss2_mima translation) until hp 0. Each clause's {:hp n} gate
+;;   desugars to a local boss-hp gate: its cancellation kills the
+;;   phase's whole task subtree (turret forks, guide loops) the tick it
+;;   holds, and the finally block is the phase-edge bookkeeping (field
+;;   clear, transition mercy window). boss publishes $mima and
+;;   holds the machine until the boss registers.
+;;
+;;   sides: boss patterns anchor at the boss (root ambient = the move
+;;   anchor); the player kit opts out with (in-frame :world ...).
+
+(import "touhou")
+(defchannel $mima {:hp 0})
+(defpattern reimu-vs-mima []
+  (par (in-frame :world (reimu))
+       (mima)))
+
+;; imports splice textually; placed after the main defpattern so it stays
+;; the card's first (= default) pattern. Definitions resolve card-wide.
+(import "translations/ph_boss2_spell2.maku")   ; spell-2 + grid/laser helpers
+(import "translations/player_homing.maku")     ; seal-orb (Fantasy Seal core)
+
+;; ============================================================================
+;; Reimu
+
+(defpattern reimu []
+  (par (rig) (free-fire) (bombs)))
+
+;; the piloted rig: position = integral of the raw axes, clamped to the
+;; field; focus slows. Reimu uses a smaller hitbox than the stock rig.
+(defpattern rig []
+  (player (touhou-player-motion 4.5 1.8)
+                {:hitbox 0.05}))
+
+;; focus switches the fire mode (player_homing's A/B split): homing
+;; amulets unfocused; tight forward needles focused (more dps, must aim)
+(defpattern free-fire []
+  (for [i inf :every (ticks 8)]
+    (when (> (:hp $mima) 0)
+      (when (< $focus-firing 0.5)
+        (shot (in-frame $player
+                 (vel p[10 (slew 60 90
+                                (angle-of (- (live $nearest-enemy) pos)))])) {:style {:family :amulet :color :red} :damage 1}))
+      (when (> $focus-firing 0.5)
+        (shot (in-frame $player
+                 ([c[-0.25 0] c[0.25 0]] ((rot 90) (linear c[13 0])))) {:style {:family :gem :color :blue} :damage 1})))))
+
+;; bombs: raw $bomb button, stock as fold state, cooldown as debounce.
+;; effect = clear hostile fire + Fantasy Seal (imported seal-orb, on a
+;; snappy 1.2s orbit instead of fantasy-seal's ceremonial 4s).
+(defpattern bombs []
+  (loop [stock 3]
+    (wait-for (> $bomb 0.5))
+    (when (> stock 0)
+      (event :bomb)
+      (cull)
+      (seal))
+    (wait 2.5)
+    (recur (dec stock))))
+
+(defpattern seal []
+  (for [k 6 :every (ticks 6)]
+    (shot (seal-orb k 1.2) {:style {:family :gglcircle
+                    :color (nth [:red :green :yellow :blue] k)
+                    :variant :w}
+            :scale 2 :damage 8})))
+
+;; ============================================================================
+;; Mima
+
+(defpattern mima []
+  (seq
+    ;; boss owns the boss conventions: $mima bound for host state,
+    ;; machine held until the boss registers, `boss` handles bound.
+    (boss $mima (pose c[0 2.6])
+                {:hp 100 :hitbox 0.45
+                  :style {:family :lstar :color :purple}
+                  :scale 2}
+      (phases                            ; touhou's sugar over `states`:
+        (:nonspell {:hp 60}              ; local hp gate
+          (nonspell)
+          (finally
+            (cull)                       ; field clear at the phase edge
+            (invuln (nth boss 0) 1.5)))  ; transition mercy window
+        (:spell2 {:hp 0 :spell :mima-spell-2}
+          (spell-2-with-root boss))))))
+
+;; non-spell: aimed fans + a lazy ring, until the first health bar breaks
+(defpattern nonspell []
+  (for [vol inf :every (ticks 46)]
+    (seq
+      (bullet ((aim $player)
+               (fan 5 16 (linear p[(* factor 2.6) 0]))) {:style {:family :circle :color :purple}})
+      (when (= (mod vol 3) 0)
+        (bullet ((rot m"13*vol")
+                 (circle 20 (linear p[(* factor 1.3) 0]))) {:style {:family :circle :color :pink}})))))

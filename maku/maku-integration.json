@@ -1,0 +1,9 @@
+{
+  "maku_source_revision": "c6f5559e766bcde3bf25ba67640c67ec3a72b1f1",
+  "maku_version": "0.1.0",
+  "frame_abi_version": 1,
+  "browser_package": "@mlegls/maku@0.1.0",
+  "release_manifest": "pkg/wasm/release.json",
+  "sync_manifest": "maku crates/web/release-sync.json schema 1",
+  "renderer": "Canvas2D compatibility adapter over ordered frame ABI 1"
+}

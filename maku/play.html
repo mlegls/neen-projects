@@ -1,0 +1,475 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Maku · ZMZM</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #101116;
+    --panel: #171922;
+    --panel2: #1d202b;
+    --line: #303442;
+    --text: #d8dbe6;
+    --muted: #8e95a6;
+    --accent: #78d6c6;
+    --warn: #ffbf6b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: #fdfdfa;
+    color: var(--text);
+    font: 13px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  button, select, textarea, input {
+    font: inherit;
+  }
+  button, .link-button {
+    background: var(--panel2);
+    color: var(--text);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    min-height: 30px;
+    padding: 4px 10px;
+    cursor: pointer;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+  }
+  button:hover, .link-button:hover { border-color: #4b5268; }
+  button.primary { border-color: #4f8f84; color: #dffaf5; }
+  button.icon { width: 34px; padding: 4px 0; }
+  .app {
+    min-height: calc(100vh - 109px);
+    display: grid;
+    grid-template-columns: minmax(220px, 280px) minmax(500px, 1fr) minmax(320px, 430px);
+  }
+  .nav, .editor, .docs-drawer {
+    background: var(--panel);
+    border-color: var(--line);
+  }
+  .nav {
+    border-right: 1px solid var(--line);
+    overflow: auto;
+  }
+  .editor {
+    border-left: 1px solid var(--line);
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+  .stage {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .topbar, .editor-head, .nav-head, .docs-head {
+    min-height: 52px;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .topbar { justify-content: space-between; }
+  .brand { font-weight: 700; color: #fff; }
+  .subtle { color: var(--muted); }
+  .nav-section { padding: 12px; border-bottom: 1px solid rgba(48,52,66,0.55); }
+  .nav-section h2, .panel-title {
+    margin: 0 0 8px;
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0;
+    text-transform: uppercase;
+  }
+  .card-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .card-choice {
+    width: 100%;
+    justify-content: flex-start;
+    text-align: left;
+    min-height: 34px;
+    border-radius: 6px;
+    background: transparent;
+  }
+  .card-choice.active {
+    background: #232735;
+    border-color: #4f8f84;
+    color: #fff;
+  }
+  .card-choice span { display: block; }
+  .card-choice small { display: block; color: var(--muted); }
+  .canvas-wrap {
+    flex: 1;
+    min-height: 0;
+    display: grid;
+    place-items: center;
+    padding: 12px;
+  }
+  canvas {
+    width: min(100%, 640px);
+    height: auto;
+    aspect-ratio: 8 / 9;
+    background: #12121a;
+    border: 1px solid var(--line);
+  }
+  .playbar {
+    border-top: 1px solid var(--line);
+    padding: 10px 12px;
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 10px;
+    align-items: center;
+  }
+  #scrub { width: 100%; accent-color: var(--accent); }
+  .hud {
+    padding: 0 12px 10px;
+    min-height: 58px;
+    color: var(--muted);
+    white-space: pre-wrap;
+  }
+  .pattern-strip {
+    padding: 10px 12px;
+    border-top: 1px solid var(--line);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .pattern-strip button {
+    min-height: 28px;
+    padding: 3px 8px;
+    color: var(--muted);
+  }
+  .pattern-strip button.active {
+    color: #fff;
+    border-color: #4f8f84;
+    background: #21312f;
+  }
+  .editor-head { justify-content: space-between; }
+  .editor-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+  .source-title {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .source-editor {
+    position: relative;
+    flex: 1;
+    min-height: 240px;
+    border-bottom: 1px solid var(--line);
+    background: #101219;
+    overflow: auto;
+  }
+  .tok-comment { color: #6f778a; }
+  .tok-string { color: #c3df8c; }
+  .tok-keyword { color: #f2b56b; }
+  .tok-channel { color: #83d7ff; }
+  .tok-number { color: #b99cff; }
+  .tok-delim { color: #aeb6c8; }
+  .tok-match {
+    background: rgba(120, 214, 198, 0.22);
+    color: #f2fffb;
+  }
+  .tok-unmatched {
+    background: rgba(255, 94, 114, 0.28);
+    color: #ffd7dc;
+  }
+  .tok-form { color: #78d6c6; }
+  .tok-symbol { color: #e7e9f1; }
+  .eval {
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .bindings {
+    border-top: 1px solid var(--line);
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .bindings-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+  }
+  .binding-table {
+    display: grid;
+    gap: 6px;
+  }
+  .binding-row {
+    display: grid;
+    grid-template-columns: minmax(82px, 1fr) minmax(92px, 1fr) 62px 26px;
+    gap: 6px;
+    align-items: center;
+  }
+  .binding-row.axis {
+    grid-template-columns: minmax(82px, 1fr) 44px 44px 48px 26px;
+  }
+  .binding-row input, .binding-row select {
+    min-width: 0;
+    width: 100%;
+    height: 28px;
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    background: #11131b;
+    color: var(--text);
+    padding: 3px 6px;
+  }
+  .binding-row button {
+    min-height: 28px;
+    padding: 2px 6px;
+  }
+  .key-capture.capturing {
+    color: var(--warn);
+    border-color: var(--warn);
+  }
+  .const-row {
+    display: grid;
+    grid-template-columns: minmax(90px, 1fr) 84px 26px;
+    gap: 6px;
+  }
+  .const-row input {
+    min-width: 0;
+    height: 28px;
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    background: #11131b;
+    color: var(--text);
+    padding: 3px 6px;
+  }
+  .eval-editor {
+    position: relative;
+    min-height: 120px;
+    background: #11131b;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    overflow: auto;
+  }
+  .eval-row { display: flex; gap: 6px; flex-wrap: wrap; }
+  .docs-drawer {
+    position: fixed;
+    top: 0;
+    right: 0;
+    width: min(720px, 92vw);
+    height: 100vh;
+    border-left: 1px solid var(--line);
+    transform: translateX(100%);
+    transition: transform 160ms ease;
+    z-index: 5;
+    display: flex;
+    flex-direction: column;
+    box-shadow: -18px 0 48px rgba(0,0,0,0.35);
+  }
+  .docs-drawer.open { transform: translateX(0); }
+  .docs-head { justify-content: space-between; }
+  .doc-body {
+    overflow: auto;
+    padding: 18px 22px 48px;
+    color: #d8dbe6;
+    font: 15px/1.65 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  .doc-body h1, .doc-body h2, .doc-body h3 { line-height: 1.2; color: #fff; }
+  .doc-body h1 { font-size: 28px; margin: 0 0 18px; }
+  .doc-body h2 { font-size: 20px; margin: 30px 0 10px; }
+  .doc-body h3 { font-size: 16px; margin: 22px 0 8px; }
+  .doc-body pre {
+    overflow: auto;
+    background: #101219;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 12px;
+  }
+  .doc-body code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.92em;
+  }
+  .doc-body :not(pre) > code {
+    background: #202331;
+    border-radius: 4px;
+    padding: 1px 4px;
+  }
+  .doc-body table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 16px 0;
+  }
+  .doc-body th, .doc-body td {
+    border: 1px solid var(--line);
+    padding: 6px 8px;
+    vertical-align: top;
+  }
+  .mobile-reader {
+    display: none;
+  }
+  @media (max-width: 980px) {
+    .app {
+      grid-template-columns: 1fr;
+    }
+    .nav, .editor {
+      border: 0;
+    }
+    .nav {
+      max-height: 42vh;
+      border-bottom: 1px solid var(--line);
+    }
+    .stage {
+      min-height: 74vh;
+    }
+    .editor {
+      min-height: 60vh;
+      border-top: 1px solid var(--line);
+    }
+    .mobile-reader {
+      display: inline-flex;
+    }
+  }
+</style>
+<link rel="stylesheet" href="./danmaku-site.css">
+</head>
+<body data-asset-base="/projects/maku/">
+<div class="site-frame">
+<div class="app">
+  <aside id="cards-drawer" class="nav">
+    <div class="nav-head">
+      <div>
+        <div class="brand">Maku</div>
+        <div class="subtle">interactive cards</div>
+      </div>
+      <button id="cards-close" class="icon drawer-close" title="Close">x</button>
+    </div>
+    <section class="nav-section">
+      <h2>Tutorials</h2>
+      <div id="tutorial-list" class="card-list"></div>
+    </section>
+    <section class="nav-section">
+      <h2>Demo Cards</h2>
+      <div id="demo-list" class="card-list"></div>
+    </section>
+  </aside>
+
+  <main class="stage">
+    <div class="topbar">
+      <div>
+        <div class="app-kicker">
+          <a href="/">ZMZM</a><span> / </span><a href="/projects">Projects</a><span> / Maku</span>
+        </div>
+        <div id="current-title" class="brand">Loading...</div>
+        <div id="current-path" class="subtle"></div>
+      </div>
+      <div class="editor-actions">
+        <button id="cards-toggle">Cards</button>
+        <button id="docs-toggle">Docs</button>
+        <button id="bindings-toggle">Bindings</button>
+        <a class="link-button" href="https://github.com/mlegls/maku">GitHub</a>
+        <a class="link-button mobile-reader" href="tutorials.html">Read</a>
+      </div>
+    </div>
+    <div class="canvas-wrap">
+      <canvas id="cv" width="640" height="720"></canvas>
+    </div>
+    <div class="playbar">
+      <button id="play" class="icon" title="Play/pause">||</button>
+      <input id="scrub" type="range" min="0" max="1" value="0" step="1">
+      <span id="tick">0</span>
+    </div>
+    <div id="patterns" class="pattern-strip"></div>
+    <div class="hud">
+      <div id="hud"></div>
+      <div id="status"></div>
+    </div>
+  </main>
+
+  <aside class="editor">
+    <div class="editor-head">
+      <div class="source-title">
+        <div class="panel-title">Source</div>
+        <div id="source-name" class="subtle"></div>
+      </div>
+      <div class="editor-actions">
+        <button id="format-source">Format</button>
+        <button id="apply-source" class="primary">Apply</button>
+        <button id="reset-source">Reset</button>
+      </div>
+    </div>
+    <div id="source-editor" class="source-editor"></div>
+    <div class="eval">
+      <div class="panel-title">Eval</div>
+      <div id="eval-editor" class="eval-editor" data-initial="(spawn ((rot m&quot;20*t&quot;)
+  (circle 12 (linear p[2 0])))
+  {:style {:family :star :color :teal}})"></div>
+      <div class="eval-row">
+        <button id="run">run</button>
+        <button id="swap">swap</button>
+        <button id="add">add</button>
+        <button id="restart">restart</button>
+        <button id="format-eval">format</button>
+      </div>
+      <div class="subtle">Default bindings: WASD/arrows move, Shift focus, X bomb. T/Y/U/I set $rank.</div>
+    </div>
+  </aside>
+  <footer class="app-footer">
+    <a href="/">Home</a><span>·</span><a href="/posts">Posts</a><span>·</span><a href="/projects">Projects</a><span>·</span><a href="https://github.com/mlegls/maku">GitHub</a><span>·</span>@mlegls<span>·</span>yz [at] mmon.co
+  </footer>
+</div>
+
+<aside id="bindings-modal" class="bindings-modal" aria-hidden="true">
+  <div class="bindings-dialog">
+    <div class="bindings">
+      <div class="bindings-head">
+        <div>
+          <div class="panel-title">Bindings</div>
+          <div class="subtle">Host channels written into the input tape.</div>
+        </div>
+        <div class="editor-actions">
+          <button id="reset-bindings">Reset</button>
+          <button id="bindings-close" class="icon" title="Close">x</button>
+        </div>
+      </div>
+      <div id="binding-rows" class="binding-table"></div>
+      <div class="eval-row">
+        <button id="add-button-binding">+ button</button>
+        <button id="add-axis-binding">+ axis</button>
+      </div>
+      <div class="panel-title">Constants</div>
+      <div id="const-rows" class="binding-table"></div>
+      <div class="eval-row">
+        <button id="add-const-binding">+ const</button>
+      </div>
+    </div>
+  </div>
+</aside>
+
+<aside id="docs-drawer" class="docs-drawer" aria-hidden="true">
+  <div class="docs-head">
+    <div>
+      <div id="doc-title" class="brand">Tutorial</div>
+      <div id="doc-path" class="subtle"></div>
+    </div>
+    <div class="editor-actions">
+      <a class="link-button" href="tutorials.html">Reader</a>
+      <button id="docs-close" class="icon" title="Close">x</button>
+    </div>
+  </div>
+  <article id="doc-body" class="doc-body"></article>
+</aside>
+
+</div>
+<script>
+globalThis.DANMAKU_DOC_HTML_BASE = new URL("./tutorials/", location.href).toString();
+</script>
+<script type="module" src="main.js"></script>
+</body>
+</html>

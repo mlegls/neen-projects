@@ -1,0 +1,425 @@
+;; The touhou genre layer — ordinary card code over the bare engine.
+;;
+;; `spawn` itself knows only (dyn, collider/render specs, meta): columns,
+;; rules, damage are explicit data, and an entity with no colliders is inert to
+;; the contact pass. What a "bullet", "enemy", or "boss" carries is THIS
+;; file's business. Authored here, inlined into the engine at compile
+;; time: (import "touhou") resolves to this text on every host.
+;;
+;; The templates are macros, not functions, so the caller's literal meta
+;; map passes through unevaluated — signal-valued tags (:scale :facing
+;; :opacity :hue, §7) keep their forms. spawn merges meta maps per-key,
+;; later wins, so every default below is overridable at the call site.
+;;
+;; Bullet/shot radii default from the sprite family via `family-hitbox`
+;; below (the classic values); pass :hitbox to override, and unknown or
+;; computed families take the flat 0.12 primary.
+
+;; Streams — host inputs claimed by (from-host :name default), derived
+;; values recomputed once per tick; card code, not engine. defchannel is
+;; sugar over def $name + bind! + export!.
+(defchannel $player (from-host :player c[0 -4]))
+(defchannel $move-x (from-host :move-x 0))
+(defchannel $move-y (from-host :move-y 0))
+(defchannel $focus-firing (from-host :focus-firing 0))
+(defchannel $bomb (from-host :bomb 0))
+(defchannel $rank (from-host :rank 1))
+(defchannel $enemies (count-entities {:team :enemy}))
+(defchannel $nearest-enemy
+  (let [target (nearest-entity {:team :enemy} $player)]
+    (if (nothing? target) (from-host :nearest-enemy c[0 3]) target)))
+
+;; Touhou entity templates accept :hitbox as library sugar for the primary
+;; collider radius. Raw low-level spawn has no :hitbox behavior.
+;; Bullet/shot radii default from the sprite family (the classic values, as
+;; lib data): explicit :hitbox wins, then the literal :style :family, then
+;; the template's flat default. Resolution is macro-time over literal meta
+;; forms — a computed :style falls through to the flat default.
+(def family-hitbox {:star 0.09 :gem 0.09 :lstar 0.20 :gglcircle 0.20})
+
+(defn family-hitbox* [metas default]
+  (match metas
+    [] default
+    [m & rest] (let [fam (get (get m :style) :family)
+                     next (if (nothing? fam)
+                            default
+                            (let [here (get family-hitbox fam)]
+                              (if (nothing? here) default here)))]
+                 (family-hitbox* rest next))))
+
+(defn explicit-hitbox* [metas default]
+  (match metas
+    [] default
+    [m & rest] (let [here (get m :hitbox)
+                     next (if (nothing? here) default here)]
+                 (explicit-hitbox* rest next))))
+
+(defn primary-hitbox-radius* [metas default]
+  (explicit-hitbox* metas (family-hitbox* metas default)))
+
+;; Touhou shots read a numeric :damage column in the contact rule. The public
+;; macro API accepts either :damage n or DMK-style :damage {:hit n ...}.
+(defn damage-value* [metas default]
+  (match metas
+    [] default
+    [m & rest] (let [d (get m :damage)
+                     hit (if (nothing? d) d (get d :hit))
+                     here (if (nothing? hit) d hit)
+                     next (if (nothing? here) default here)]
+                 (damage-value* rest next))))
+
+;; Beam lifecycle is ordinary fields (:warn :active :fill), translated each
+;; tick into static collider/render extents by the projector bodies below.
+(defn laser-hot-fraction [e ctx]
+  (let [warn (default e.warn 0)
+        active (default e.active inf)
+        fill (max 0 (min 1 (default e.fill 1)))]
+    (if (< ctx.t warn)
+      0
+      (if (> ctx.t (+ warn active)) 0 fill))))
+
+(defrender-kind :sprite
+  {:geometry :point
+   :fields {:family :sym :color :sym :variant :sym :scale :num}})
+(defrender-kind :beam
+  {:geometry :polyline
+   :fields {:width :num :hue :num :family :sym :color :sym :variant :sym}})
+
+;; Stock Touhou/DMK sprite row. Visual knobs are ordinary flat entity fields.
+(deftick
+  (map (fn [e]
+         (let [p (:pos e)]
+           (render {:kind :sprite :shape :point
+                    :x (:x p)
+                    :y (:y p)
+                    :theta (default e.facing (:th p))
+                    :scale (default e.scale 1)
+                    :alpha (default e.opacity 1)
+                    :hue (default e.hue 0)
+                    :family e.family
+                    :color e.color
+                    :variant e.variant})))
+       (entities-where (fn [e] (* (= e.render :touhou-sprite) (= e.kind :point))))))
+
+;; hostile bullet: a damage core inside a graze ring
+(defcollider :pose graze-collider [e ctx]
+  (circle-collider {:layer :graze :r 0.35}))
+
+(defcollider :pose bullet-collider [e ctx]
+  [
+    (circle-collider {:layer :damage :r e.hitbox})
+    (circle-collider {:layer :graze :r 0.35})])
+
+;; hostile beam: a damage core inside a graze ring, swept along the hot
+;; extent of the curve. Cold (telegraph/afterlife) means no colliders at all.
+(defcollider :parametric laser-collider [e ctx]
+  (let [frac (laser-hot-fraction e ctx)
+        hot (* frac (default e.u-max 10))
+        res (default e.resolution 0.1)]
+    (if (< frac 0.000001)
+      []
+      [
+        (capsule-chain-collider {:layer :damage
+                                 :r (default e.radius (default e.r 0.08))
+                                 :u-max hot :resolution res :width 0})
+        (capsule-chain-collider {:layer :graze :r 0.35
+                                 :u-max hot :resolution res :width 0})])))
+
+;; player beam: same lifecycle, :shot layer
+(defcollider :parametric shot-laser-collider [e ctx]
+  (let [frac (laser-hot-fraction e ctx)]
+    (if (< frac 0.000001)
+      []
+      (capsule-chain-collider {:layer :shot
+                               :r (default e.radius (default e.r 0.08))
+                               :u-max (* frac (default e.u-max 10))
+                               :resolution (default e.resolution 0.1)
+                               :width 0}))))
+
+;; the pather look: the trailing trace window drawn as a ribbon — the
+;; same samples the colliders sweep (the trail you see is the trail
+;; that hits).
+(deftick
+  (map (fn [e]
+         (render {:kind :beam :shape (curve-samples e)
+                  :width (default e.width 1) :active 1
+                  :hue (default e.hue 0)
+                  :family e.family :color e.color :variant e.variant}))
+       (entities-where (fn [e] (* (= e.render :touhou-sprite) (= e.kind :pather))))))
+
+;; the beam look: a dim telegraph along the full path, a bright polyline
+;; along the hot extent.
+(deftick
+  (map (fn [e]
+         (let [frac (laser-hot-fraction e {:t e.t :tick e.tick})
+               u-max (default e.u-max 10)
+               res (default e.resolution 0.1)
+               w (default e.width 1)]
+           (if (>= frac 1)
+             (render {:kind :beam :shape (curve-samples e {:u-max u-max :resolution res})
+                      :width w :active 1
+                      :family e.family :color e.color :variant e.variant})
+             (if (< frac 0.000001)
+               (render {:kind :beam :shape (curve-samples e {:u-max u-max :resolution res})
+                        :width w :active 0
+                        :family e.family :color e.color :variant e.variant})
+               (seq
+                 (render {:kind :beam :shape (curve-samples e {:u-max u-max :resolution res})
+                          :width w :active 0
+                          :family e.family :color e.color :variant e.variant})
+                 (render {:kind :beam :shape (curve-samples e {:u-max (* frac u-max) :resolution res})
+                          :width w :active 1
+                          :family e.family :color e.color :variant e.variant}))))))
+       (entities-where (fn [e] (* (= e.render :beam) (= e.kind :curve))))))
+
+;; end-of-life: a beam past warn+active is culled — beam lifecycle is genre
+;; policy, not an engine rule. Curves without :active live forever.
+(deftick
+  (map (fn [e] (cull e))
+       (entities-where (fn [e] (* (= e.kind :curve)
+                                  (> e.t (+ (default e.warn 0)
+                                            (default e.active inf))))))))
+
+(defmacro bullet [dyn & metas]
+  `(spawn ~dyn
+          bullet-collider
+          {:render :touhou-sprite
+           :damage ~(damage-value* metas 1)
+           :hitbox ~(primary-hitbox-radius* metas 0.12)}
+          ~@metas))
+
+;; hostile beam spawn: the laser-ness (colliders, beam look, lifecycle
+;; fields) lives at the spawn boundary; the figure inside is a plain curve.
+(defmacro laser [dyn & metas]
+  `(spawn ~dyn
+          laser-collider
+          {:render :beam :damage ~(damage-value* metas 1)}
+          ~@metas))
+
+;; the genre name for sampling a pose along a live beam
+(defn on-laser [h u] (on-curve h u))
+
+;; player beam
+(defmacro laser-shot [dyn & metas]
+  `(spawn ~dyn
+          shot-laser-collider
+          {:render :beam :team :player :damage ~(damage-value* metas 1)}
+          ~@metas))
+
+;; player fire: omitted :damage defaults to 1 in the contact rule
+(defmacro shot [dyn & metas]
+  `(spawn ~dyn
+          (circle-collider {:layer :shot :r ~(primary-hitbox-radius* metas 0.12)})
+          {:render :touhou-sprite
+           :team :player :damage ~(damage-value* metas 1)}
+          ~@metas))
+
+;; enemy: shootable, one hp unless told otherwise, dies at zero
+(defmacro enemy [dyn & metas]
+  `(spawn ~dyn
+          (circle-collider {:layer :hurt :r ~(explicit-hitbox* metas 0.3)})
+          {:render :touhou-sprite
+           :team :enemy :hp 1}
+          ~@metas))
+
+(defn hp-of [b] (default (:hp b) 0))
+
+;; boss: an enemy WITH A PHASE MACHINE — that is the whole difference.
+;; The macro owns the boss conventions, so every touhou boss gets them
+;; without writing them out:
+;;   - the card's boss stream (declare it: (defchannel $name {:hp 0}))
+;;     is rebound to live host/UI state
+;;   - the machine starts only once the boss is REGISTERED
+;;   - `boss` (the spawn's handle array) and `boss-main` (its first handle)
+;;     are bound for the machine body
+;; Meta supplies :hp/:hitbox/:style as usual. Gate phases with
+;; {:hp n} (below), which reads boss-main's local hp.
+;; `boss-main` and `$spell` are bound convention names for the machine body:
+;; phases' :spell opt writes $spell, and the boss channel publishes it.
+(defmacro boss [chan dyn meta & machine]
+  `(let [boss (enemy ~dyn ~meta)]
+     (let [boss-main (nth boss 0)]
+       (let [$spell 0]                 ; 0 = no active spell (masks, §2)
+         (seq
+           (bind! ~chan {:hp (hp-of boss-main)
+                         :pos (:pos boss-main)
+                         :spell $spell})
+           (wait-for (> (hp-of boss-main) 0))
+           ;; the machine fires from wherever the boss is NOW — the anchor
+           ;; is the live entity, so :root moves carry the fire with them
+           (in-frame boss-main (seq ~@machine)))))))
+
+;; ---------------------------------------------------------------------
+;; Contacts are card code. The engine now detects overlaps between opaque
+;; layer tags and evaluates two data prefilters (:once and :skip-if); it
+;; does not know what damage, graze, shots, hurtboxes, or mercy windows are.
+;; These Touhou rules sit next to the spawn templates that create the tags.
+
+;; player hit: bullets pass through during the mercy window; beams persist
+;; through a hit (cull points only). The mercy window is per-entity data
+;; (:iframes col, seconds), default 0.5s; 120 = tick rate.
+(deftick
+  (map (fn [[a b]]
+         (if (<= (default (:iframe-until b) 0) (:tick b))
+           (seq
+             (when (= (:kind a) :point) (cull a))
+             (change-col b :hits (fn [h] (+ (default h 0) 1)))
+             (set-col b :iframe-until (+ (:tick b) (* (default (:iframes b) 0.5) 120)))
+             (change-col b :lives (fn [l] (- (default l 0) 1)))
+             (event :player-hit (:pos a)))))
+       (collisions :damage :player-hurt)))
+
+;; graze: once per bullet ever, latched with an ordinary field on the bullet.
+(deftick
+  (map (fn [[a b]]
+         (if (< (default (:grazed a) 0) 1)
+           (seq
+             (set-col a :grazed 1)
+             (change-col b :graze (fn [g] (+ (default g 0) 1)))
+             (event :graze (:pos a)))))
+       (collisions :graze :player-hurt)))
+
+;; The HUD counters are derived channels: a host may layer its own player rig
+;; over a card that ships one (two hurtboxes, one screen). The sum over every
+;; player body is what "the run's graze count" means.
+(defchannel $graze (sum-entities {:team :player-body} :graze))
+(defchannel $hits (sum-entities {:team :player-body} :hits))
+(defchannel $lives (sum-entities {:team :player-body} :lives))
+
+;; player: a piloted Touhou hurtbox. This owns the DMK-like player
+;; convention, but only as library code: a different game can shadow this
+;; macro or bind $player itself.
+(defmacro player [dyn & metas]
+  `(let [player (spawn ~dyn
+                       (circle-collider {:layer :player-hurt :r ~(explicit-hitbox* metas 0.06)})
+                       {:render :touhou-sprite
+                        :team :player-body
+                        :lives 3 :bombs 3 :graze 0 :hits 0}
+                       ~@metas)]
+     (let [player-main (nth player 0)]
+       (seq
+         (bind! $player (:pos player-main))))))
+
+(defn touhou-player-motion [speed focus_speed]
+  (clamp c[-3.8 -4.4] c[3.8 4.4]
+    (in-frame c[0 -3]
+      (vel c[m"live($move-x) * (speed - (speed - focus_speed) * live($focus-firing))"
+             m"live($move-y) * (speed - (speed - focus_speed) * live($focus-firing))"]))))
+
+(defpattern player-rig [lives 3
+                        bombs 3
+                        speed 4.5
+                        focus-speed 1.8]
+  (player (touhou-player-motion speed focus-speed)
+                {:lives lives :bombs bombs}))
+
+;; shot damage: the shot dies either way (absorbed during the target's mercy
+;; window); :damage is a numeric column, defaulting to 1.
+(deftick
+  (map (fn [[a b]]
+         (seq
+           (cull a)
+           (if (> (default (:iframe-until b) 0) (:tick b))
+             (event :absorbed (:pos b))
+             (let [dmg (default (:damage a) 1)]
+               (seq
+                 (change-col b :hp (fn [hp] (- (default hp 1) dmg)))
+                 (event :enemy-hit (:pos b)))))))
+       (collisions :shot :hurt)))
+
+(deftick
+  (map (fn [e]
+         (seq
+           (event :died (:pos e))
+           (cull e)))
+       (entities-where (fn [e] (* (= e.team :enemy) (<= (default (:hp e) 1) 0))))))
+
+(deftick
+  (map (fn [e]
+         (seq
+           (set-col e :game-over-fired 1)
+           (event :game-over)))
+       (entities-where (fn [e] (* (= e.team :player-body)
+                                  (<= (default (:lives e) 1) 0)
+                                  (< (default (:game-over-fired e) 0) 1))))))
+
+;; ---------------------------------------------------------------------
+;; (phases (:label opts? body… (finally …)?) …) — the boss-shaped layer
+;; over the bare `states` FSM, defined HERE because what a "phase" means
+;; is genre policy. Clause opts desugar to state-body code:
+;;   :hp n      → :until (<= (hp-of boss-main) n) [the health-bar gate]
+;;   :until p   → body becomes (until p body…)    [the gate race]
+;;   :timeout d → (fork (seq (wait d) (goto)))    [timer arms on arrival]
+;;   :root pos  → (move-to boss-main 0.9 eoutsine pos)
+;;                [reposition the local boss entity first]
+;;   :spell n   → entry (set! $spell {:name n :type (:type opts)?}) +
+;;                (event :spell-declared); exit resets $spell to 0 +
+;;                (event :spell-end) via the clause finally — hosts read
+;;                name/type off the boss channel (:spell is 0 between
+;;                spells), events key the banner
+;; The (finally …) tail is phase sugar for core `(finally body cleanup…)`:
+;; cancellation-safe cleanup lives in the scheduler, while `states` stays a
+;; plain FSM. Macro-time plumbing only — same machine underneath, and
+;; richer templates (:name/:type/hp bars) belong in cards, over these.
+
+;; gate predicate from a clause's opts map form (nothing when ungated)
+(defn phase-gate* [opts]
+  (let [hp (get opts :hp)]
+    (if (nothing? hp) (get opts :until) `(<= (hp-of boss-main) ~hp))))
+
+;; a clause's :spell opt → ([entry declarations] [exit cleanups])
+(defn phase-spell* [opts]
+  (let [spell (get opts :spell)]
+    (if (nothing? spell)
+      [[] []]
+      (let [ty (get opts :type)
+            declare (if (nothing? ty)
+                      `(set! $spell {:name ~spell})
+                      `(set! $spell {:name ~spell :type ~ty}))]
+        [[declare `(event :spell-declared)]
+         [`(set! $spell 0) `(event :spell-end)]]))))
+
+;; one clause's already-split pieces → a `states` clause
+(defn phase-emit* [label opts body fin]
+  (let [gate (phase-gate* opts)
+        gated (if (nothing? gate)
+                body
+                (if (= (count body) 0)
+                  [`(wait-for ~gate)]
+                  [`(until ~gate ~@body)]))
+        timeout (get opts :timeout)
+        timed (if (nothing? timeout)
+                gated
+                (concat [`(fork (seq (wait ~timeout) (goto)))] gated))
+        root (get opts :root)
+        rooted (if (nothing? root)
+                 timed
+                 (concat [`(move-to boss-main 0.9 eoutsine ~root)] timed))
+        spell (phase-spell* opts)
+        entered (concat (nth spell 0) rooted)
+        cleanup (concat fin (nth spell 1))]
+    (if (= (count cleanup) 0)
+      `(~label ~@entered)
+      `(~label (finally (seq ~@entered) ~@cleanup)))))
+
+;; split the optional (finally …) tail; pass only cleanup forms onward.
+(defn phase-split* [label opts rest]
+  (match rest
+    [& body ['finally & fin]] (phase-emit* label opts body fin)
+    _                         (phase-emit* label opts rest [])))
+
+;; one (:label opts? body… (finally …)?) clause → a `states` clause
+(defn phase-clause* [clause]
+  (match clause
+    [label (as opts {}) & rest] (phase-split* label opts rest)
+    [label & rest]              (phase-split* label {} rest)))
+
+(defmacro phases [& clauses]
+  `(states ~@(map phase-clause* clauses)))
+
+;; (invuln b dur): mercy window for dur seconds — a DEADLINE COLUMN both
+;; contact paths honor (player hits skip the lives write; enemy damage is
+;; absorbed). Pure library code: $tick + set-col. 120 = the engine tick
+;; rate (fixed by the engine).
+(defn invuln [b dur]
+  (set-col b :iframe-until (+ $tick (* dur 120))))
